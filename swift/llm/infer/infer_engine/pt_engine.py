@@ -478,54 +478,52 @@ class PtEngine(InferEngine):
         if template.use_model:
             template.model = self.model
 
-        if self.model_info.task_type == 'causal_lm':
-            template.set_mode('pt')
-
-        batched_inputs, error_list = self._batch_encode(
-            infer_requests, template=template, strict=getattr(self, 'strict', True))
-        if len(batched_inputs) > 0:
-            template_inputs = [inputs.pop('template_inputs') for inputs in batched_inputs]
-            inputs = to_device(template.data_collator(batched_inputs), self.model.device)
-            template.debug_logger(inputs)  # debug
-            if self.model.model_meta.is_multimodal:
-                _, inputs = template.pre_forward_hook(self.model, None, inputs)
-            if self.model_info.task_type == 'causal_lm':
-                self.set_default_max_tokens(request_config, inputs)
-                generation_config = self._prepare_generation_config(request_config)
-                self._add_stop_words(generation_config, request_config, template.template_meta)
-            else:
-                generation_config = request_config
-
-            kwargs = {
-                'template': template,
-                'inputs': inputs,
-                'generation_config': generation_config,
-                'adapter_request': adapter_request,
-                'request_config': request_config,
-                'template_inputs': template_inputs,
-            }
-            if pre_infer_hook:
-                kwargs = pre_infer_hook(kwargs)
-        else:
-            kwargs = {}
-        if request_config.stream:
-
-            def _gen_wrapper():
-                if len(kwargs) > 0:
-                    for res in self._infer_stream(**kwargs):
-                        yield self._add_error_list(res, error_list)
+        # use generate_context to ensure mode switches to 'pt' during inference and restores afterwards
+        error_list = []
+        with template.generate_context():
+            batched_inputs, error_list = self._batch_encode(
+                infer_requests, template=template, strict=getattr(self, 'strict', True))
+            if len(batched_inputs) > 0:
+                template_inputs = [inputs.pop('template_inputs') for inputs in batched_inputs]
+                inputs = to_device(template.data_collator(batched_inputs), self.model.device)
+                template.debug_logger(inputs)  # debug
+                if self.model_info.task_type == 'causal_lm':
+                    self.set_default_max_tokens(request_config, inputs)
+                    generation_config = self._prepare_generation_config(request_config)
+                    self._add_stop_words(generation_config, request_config, template.template_meta)
                 else:
-                    yield self._add_error_list([], error_list)
+                    generation_config = request_config
 
-            return _gen_wrapper()
-        else:
-            if len(kwargs) > 0:
-                infer_func = self._infer_forward if template.task_type in {'seq_cls', 'prm', 'embedding'
-                                                                           } else self._infer_full
-                res = infer_func(**kwargs)
+                kwargs = {
+                    'template': template,
+                    'inputs': inputs,
+                    'generation_config': generation_config,
+                    'adapter_request': adapter_request,
+                    'request_config': request_config,
+                    'template_inputs': template_inputs,
+                }
+                if pre_infer_hook:
+                    kwargs = pre_infer_hook(kwargs)
             else:
-                res = []
-            return self._add_error_list(res, error_list)
+                kwargs = {}
+
+            if request_config.stream:
+
+                def _gen_wrapper():
+                    if len(kwargs) > 0:
+                        for res in self._infer_stream(**kwargs):
+                            yield self._add_error_list(res, error_list)
+                    else:
+                        yield self._add_error_list([], error_list)
+
+                return _gen_wrapper()
+            else:
+                if len(kwargs) > 0:
+                    infer_func = self._infer_forward if template.task_type in {'seq_cls', 'prm', 'embedding'} else self._infer_full
+                    res = infer_func(**kwargs)
+                else:
+                    res = []
+                return self._add_error_list(res, error_list)
 
     def infer(
         self,
