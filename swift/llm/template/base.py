@@ -628,6 +628,16 @@ class Template(ProcessorMixin):
                 self.register_post_encode_hook(models)
             self.set_mode(origin_mode)
 
+    @contextmanager
+    def train_context(self):
+        origin_mode = self.mode
+        try:
+            self.set_mode('train')
+            yield
+        finally:
+            if origin_mode != 'train':
+                self.set_mode(origin_mode)
+
     def generate(self, model, *args, **kwargs):
         base_model = self.get_base_model(model)
         signature = inspect.signature(base_model.generate)

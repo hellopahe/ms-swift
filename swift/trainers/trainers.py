@@ -403,5 +403,5 @@ class Seq2SeqTrainer(SwiftMixin, DataLoaderMixin, HfSeq2SeqTrainer):
         return (loss, outputs) if return_outputs else loss
 
     def training_step(self, model, inputs, *args, **kwargs):
-        with self.template.forward_context(self.model, inputs):
+        with self.template.train_context(), self.template.forward_context(self.model, inputs):
             return super().training_step(model, inputs, *args, **kwargs)
