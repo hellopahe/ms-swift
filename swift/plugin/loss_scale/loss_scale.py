@@ -140,6 +140,9 @@ class IgnoreEmptyThink(REACTLossScale):
     loss_scale_config = 'ignore_empty_think.json'
     is_binary = True
 
+class IgnoreThink(REACTLossScale):
+    loss_scale_config = 'ignore_think.json'
+    is_binary = True
 
 class LastRoundWithIgnoreEmptyThink(LossScale):
     loss_scale_config = 'ignore_empty_think.json'
@@ -166,6 +169,7 @@ loss_scale_map = {
     'default': DefaultLossScale,
     'all': TrainAllLossScale,
     'ignore_empty_think': IgnoreEmptyThink,
+    'ignore_think': IgnoreThink,
     'last_round_with_ignore_empty_think': LastRoundWithIgnoreEmptyThink,
     # agent
     'react': REACTLossScale,
