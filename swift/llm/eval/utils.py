@@ -122,7 +122,7 @@ class EvalModel(ModelAPI):
             self.template = collect_model_arg('template')  # conversation template
 
         # Initialize the inference engine with batch support
-        self.engine = PtEngine.from_model_template(self.model, self.template, max_batch_size=self.config.batch_size)
+        self.engine = PtEngine.from_model_template(self.model, self.template, max_batch_size=self.max_batch_size)
 
     def generate(
         self,
