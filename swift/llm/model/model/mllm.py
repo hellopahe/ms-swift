@@ -222,23 +222,6 @@ register_model(
     ))
 
 
-register_model(
-    ModelMeta(
-        MLLMModelType.keye_vl_1_5,
-        [
-            ModelGroup([
-                Model('Kwai-Keye/Keye-VL-1_5-8B', 'Kwai-Keye/Keye-VL-1_5-8B'),
-            ]),
-        ],
-        TemplateType.keye_vl_1_5,
-        get_model_tokenizer_keye_vl,
-        model_arch=ModelArch.keye_vl_1_5,
-        architectures=['KeyeVL1_5ForConditionalGeneration'],
-        tags=['vision'],
-        requires=['keye_vl_utils>=1.5.2'],
-    ))
-
-
 def get_model_tokenizer_dots_ocr(model_dir, *args, **kwargs):
     model_cls = get_class_from_dynamic_module('modeling_dots_vision.DotsVisionTransformer', model_dir)
     model_cls._no_split_modules = ['DotsVisionBlock']
