@@ -544,16 +544,16 @@ class PtEngine(InferEngine):
                     else:
                         yield self._add_error_list([], error_list)
 
-            return _gen_wrapper()
-        else:
-            if len(kwargs) > 0:
-                infer_func = self._infer_forward if template.task_type in {
-                    'seq_cls', 'prm', 'embedding', 'reranker', 'generative_reranker'
-                } else self._infer_full
-                res = infer_func(**kwargs)
+                return _gen_wrapper()
             else:
-                res = []
-            return self._add_error_list(res, error_list)
+                if len(kwargs) > 0:
+                    infer_func = self._infer_forward if template.task_type in {
+                        'seq_cls', 'prm', 'embedding', 'reranker', 'generative_reranker'
+                    } else self._infer_full
+                    res = infer_func(**kwargs)
+                else:
+                    res = []
+                return self._add_error_list(res, error_list)
 
     def infer(
         self,
