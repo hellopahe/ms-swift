@@ -72,6 +72,12 @@ class SwiftRLHF(SwiftSft):
             task_type=task_type,
             num_labels=num_labels)
 
+        if origin_key == 'reward' and task_type == 'seq_cls':
+            from swift.llm.model.patcher import get_lm_head_model
+            llm_model = get_lm_head_model(model, model.model_meta, ['lm_head', 'output', 'embed_out', 'output_layer'])
+            if hasattr(llm_model, 'score') and not hasattr(model, 'score'):
+                model.score = llm_model.score
+
         adapters = args.adapters if key == 'ref' else args.reward_adapters
         # Don't load reward_adapters for value model (it will add its own LoRA later)
         if origin_key == 'value':
