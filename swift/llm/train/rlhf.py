@@ -94,9 +94,22 @@ class SwiftRLHF(SwiftSft):
             logger.info(f'[DEBUG] base model type: {type(base_model).__name__}')
             logger.info(f'[DEBUG] base model has score: {hasattr(base_model, "score")}')
             
-            llm_model = get_lm_head_model(base_model, base_model.model_meta, ['lm_head', 'output', 'embed_out', 'output_layer'])
+            top_model = model
+            while hasattr(top_model, 'model') and hasattr(top_model.model, 'model_meta'):
+                top_model = top_model.model
+            if not hasattr(top_model, 'model_meta'):
+                top_model = model
+            
+            logger.info(f'[DEBUG] top model type: {type(top_model).__name__}')
+            logger.info(f'[DEBUG] top model has model_meta: {hasattr(top_model, "model_meta")}')
+            
+            llm_model = get_lm_head_model(top_model, top_model.model_meta, ['lm_head', 'output', 'embed_out', 'output_layer'])
             logger.info(f'[DEBUG] llm_model type: {type(llm_model).__name__}')
             logger.info(f'[DEBUG] llm_model has score: {hasattr(llm_model, "score")}')
+            
+            if not hasattr(llm_model, 'score'):
+                logger.warning(f'[DEBUG] WARNING: Merged reward model does not have score layer! Check if merge_lora saved it correctly.')
+                logger.info(f'[DEBUG] Available attributes in llm_model: {[attr for attr in dir(llm_model) if not attr.startswith("_")]}')
             
             if hasattr(llm_model, 'score'):
                 if not hasattr(model, 'score'):
