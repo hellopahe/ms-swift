@@ -92,19 +92,23 @@ class SwiftRLHF(SwiftSft):
             
             logger.info(f'[DEBUG] Base model type: {type(base_model).__name__}')
             
-            if hasattr(base_model, 'language_model'):
-                logger.info(f'[DEBUG] language_model has score: {hasattr(base_model.language_model, "score")}')
-                if hasattr(base_model.language_model, 'score'):
-                    model.score = base_model.language_model.score
-                    logger.info(f'[DEBUG] Exposed language_model.score to top level')
+            score_layer = None
+            if hasattr(base_model, 'language_model') and hasattr(base_model.language_model, 'score'):
+                score_layer = base_model.language_model.score
+                logger.info(f'[DEBUG] Found score in language_model')
             elif hasattr(base_model, 'score'):
-                model.score = base_model.score
-                logger.info(f'[DEBUG] Exposed base_model.score to top level')
+                score_layer = base_model.score
+                logger.info(f'[DEBUG] Found score in base_model')
             
-            if not hasattr(model, 'score'):
+            if score_layer is not None:
+                model.score = score_layer
+                if hasattr(model, 'base_model'):
+                    model.base_model.score = score_layer
+                    if hasattr(model.base_model, 'model'):
+                        model.base_model.model.score = score_layer
+                logger.info(f'[DEBUG] Exposed score to all PEFT wrapper levels')
+            else:
                 logger.warning(f'[DEBUG] WARNING: Could not find score layer in loaded model!')
-                logger.warning(f'[DEBUG] This means the model was not loaded as seq_cls type.')
-                logger.warning(f'[DEBUG] Check if config.json has num_labels=1')
         if origin_key in {'ref', 'reward', 'teacher'}:
             if self.args.sequence_parallel_size > 1:
                 from swift.trainers.sequence_parallel import sequence_parallel
