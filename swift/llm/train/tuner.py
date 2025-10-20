@@ -120,8 +120,8 @@ def get_modules_to_save(args, model, task_type=None):
     if 'all-norm' in args.modules_to_save:
         modules_to_save.remove('all-norm')
         modules_to_save += find_norm(model)
-    if task_type and task_type.lower() == 'seq_cls':  # reward_model
-        modules_to_save.append('v_head')
+    if task_type and task_type.lower() == 'seq_cls':
+        modules_to_save.extend(['score', 'v_head'])
     return modules_to_save
 
 
