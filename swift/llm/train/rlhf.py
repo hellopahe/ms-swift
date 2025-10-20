@@ -79,9 +79,9 @@ class SwiftRLHF(SwiftSft):
             adapters = []
         model = prepare_adapter(args, model, adapters)
         
-        logger.info(f'[DEBUG] Checking condition: origin_key={origin_key}, task_type={task_type}, condition={origin_key == "reward" and task_type == "seq_cls"}')
+        logger.info(f'[DEBUG] Checking condition: origin_key={origin_key}, task_type={task_type}, condition={(origin_key in ("reward", "value")) and task_type == "seq_cls"}')
         
-        if origin_key == 'reward' and task_type == 'seq_cls':
+        if origin_key in ('reward', 'value') and task_type == 'seq_cls':
             from swift.llm.model.patcher import get_lm_head_model
             logger.info(f'[DEBUG] Reward model type: {type(model).__name__}')
             logger.info(f'[DEBUG] Reward model has score: {hasattr(model, "score")}')
