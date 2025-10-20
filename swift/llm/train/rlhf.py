@@ -65,6 +65,8 @@ class SwiftRLHF(SwiftSft):
             hub_token=args.hub_token,
         )
         task_type, num_labels = self._get_model_task_type(model_dir)
+        logger.info(f'[DEBUG] Loading {key} model: origin_key={origin_key}, task_type={task_type}, num_labels={num_labels}')
+        
         model, processor = args.get_model_processor(
             model=model_id_or_path,
             model_type=model_type,
@@ -76,6 +78,8 @@ class SwiftRLHF(SwiftSft):
         if origin_key == 'value':
             adapters = []
         model = prepare_adapter(args, model, adapters)
+        
+        logger.info(f'[DEBUG] Checking condition: origin_key={origin_key}, task_type={task_type}, condition={origin_key == "reward" and task_type == "seq_cls"}')
         
         if origin_key == 'reward' and task_type == 'seq_cls':
             from swift.llm.model.patcher import get_lm_head_model
