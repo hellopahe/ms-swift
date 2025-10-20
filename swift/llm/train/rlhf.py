@@ -79,48 +79,28 @@ class SwiftRLHF(SwiftSft):
         
         if origin_key == 'reward' and task_type == 'seq_cls':
             from swift.llm.model.patcher import get_lm_head_model
-            logger.info(f'[DEBUG] reward model type: {type(model).__name__}')
-            logger.info(f'[DEBUG] reward model has score: {hasattr(model, "score")}')
+            logger.info(f'[DEBUG] Reward model type: {type(model).__name__}')
+            logger.info(f'[DEBUG] Reward model has score: {hasattr(model, "score")}')
             
             base_model = model
             if hasattr(model, 'get_base_model'):
                 base_model = model.get_base_model()
-            elif hasattr(model, 'base_model'):
-                if hasattr(model.base_model, 'model'):
-                    base_model = model.base_model.model
-                else:
-                    base_model = model.base_model
             
-            logger.info(f'[DEBUG] base model type: {type(base_model).__name__}')
-            logger.info(f'[DEBUG] base model has score: {hasattr(base_model, "score")}')
+            logger.info(f'[DEBUG] Base model type: {type(base_model).__name__}')
             
-            top_model = model
-            while hasattr(top_model, 'model') and hasattr(top_model.model, 'model_meta'):
-                top_model = top_model.model
-            if not hasattr(top_model, 'model_meta'):
-                top_model = model
+            if hasattr(base_model, 'language_model'):
+                logger.info(f'[DEBUG] language_model has score: {hasattr(base_model.language_model, "score")}')
+                if hasattr(base_model.language_model, 'score'):
+                    model.score = base_model.language_model.score
+                    logger.info(f'[DEBUG] Exposed language_model.score to top level')
+            elif hasattr(base_model, 'score'):
+                model.score = base_model.score
+                logger.info(f'[DEBUG] Exposed base_model.score to top level')
             
-            logger.info(f'[DEBUG] top model type: {type(top_model).__name__}')
-            logger.info(f'[DEBUG] top model has model_meta: {hasattr(top_model, "model_meta")}')
-            
-            llm_model = get_lm_head_model(top_model, top_model.model_meta, ['lm_head', 'output', 'embed_out', 'output_layer'])
-            logger.info(f'[DEBUG] llm_model type: {type(llm_model).__name__}')
-            logger.info(f'[DEBUG] llm_model has score: {hasattr(llm_model, "score")}')
-            
-            if not hasattr(llm_model, 'score'):
-                logger.warning(f'[DEBUG] WARNING: Merged reward model does not have score layer! Check if merge_lora saved it correctly.')
-                logger.info(f'[DEBUG] Available attributes in llm_model: {[attr for attr in dir(llm_model) if not attr.startswith("_")]}')
-            
-            if hasattr(llm_model, 'score'):
-                if not hasattr(model, 'score'):
-                    model.score = llm_model.score
-                    logger.info(f'[DEBUG] Set model.score from llm_model.score')
-                if hasattr(model, 'base_model') and not hasattr(model.base_model, 'score'):
-                    model.base_model.score = llm_model.score
-                    logger.info(f'[DEBUG] Set model.base_model.score from llm_model.score')
-                if hasattr(model, 'base_model') and hasattr(model.base_model, 'model') and not hasattr(model.base_model.model, 'score'):
-                    model.base_model.model.score = llm_model.score
-                    logger.info(f'[DEBUG] Set model.base_model.model.score from llm_model.score')
+            if not hasattr(model, 'score'):
+                logger.warning(f'[DEBUG] WARNING: Could not find score layer in loaded model!')
+                logger.warning(f'[DEBUG] This means the model was not loaded as seq_cls type.')
+                logger.warning(f'[DEBUG] Check if config.json has num_labels=1')
         if origin_key in {'ref', 'reward', 'teacher'}:
             if self.args.sequence_parallel_size > 1:
                 from swift.trainers.sequence_parallel import sequence_parallel

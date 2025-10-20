@@ -39,7 +39,26 @@ def merge_lora(args: ExportArguments, device_map=None, replace_if_exists=False) 
         model, template = prepare_model_template(args)
         logger.info('Merge LoRA...')
         check_tie_word_embeddings(model)
+        
+        logger.info(f'[DEBUG] Before merge - model type: {type(model).__name__}')
+        if hasattr(model, 'model'):
+            logger.info(f'[DEBUG] Before merge - model.model type: {type(model.model).__name__}')
+        
+        from swift.llm.model.patcher import get_lm_head_model
+        llm_model_before = None
+        if hasattr(model, 'model') and hasattr(model.model, 'model_meta'):
+            llm_model_before = get_lm_head_model(model.model, model.model.model_meta, ['lm_head', 'output', 'embed_out', 'output_layer'])
+            logger.info(f'[DEBUG] Before merge - llm_model has score: {hasattr(llm_model_before, "score")}')
+        
         Swift.merge_and_unload(model)
+        
+        logger.info(f'[DEBUG] After merge - model type: {type(model).__name__}')
+        if hasattr(model, 'model'):
+            logger.info(f'[DEBUG] After merge - model.model type: {type(model.model).__name__}')
+            if hasattr(model.model, 'model_meta'):
+                llm_model_after = get_lm_head_model(model.model, model.model.model_meta, ['lm_head', 'output', 'embed_out', 'output_layer'])
+                logger.info(f'[DEBUG] After merge - llm_model has score: {hasattr(llm_model_after, "score")}')
+        
         model = model.model
         logger.info('Saving merged weights...')
 
@@ -51,6 +70,18 @@ def merge_lora(args: ExportArguments, device_map=None, replace_if_exists=False) 
             model_dirs=args.adapters,
             max_shard_size=args.max_shard_size,
             additional_saved_files=model.model_meta.additional_saved_files)
+        
+        if args.task_type == 'seq_cls' and args.num_labels is not None:
+            import json
+            config_path = os.path.join(output_dir, 'config.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                config['num_labels'] = args.num_labels
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=2, ensure_ascii=False)
+                logger.info(f'Updated config.json with num_labels={args.num_labels} for seq_cls task')
+        
         logger.info(f'Successfully merged LoRA and saved in {output_dir}.')
         args.device_map = origin_device_map
 
