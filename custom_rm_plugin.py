@@ -1,7 +1,6 @@
 # custom_rm_plugin.py
 from typing import List
-import torch
-from swift.llm import PtEngine, InferRequest
+from swift.llm import InferClient, InferRequest
 from swift.plugin import ORM, orms
 from swift.utils import get_logger
 
@@ -10,20 +9,32 @@ logger = get_logger()
 
 class LocalRMReward(ORM):
     """
-    使用本地 RM 模型（PtEngine）作为奖励函数
-    基于 examples/infer/demo_reward_model.py 的推理方式
+    使用本地 RM API 服务作为奖励函数
+    通过 HTTP API 调用独立部署的 Reward Model 服务
+    
+    环境变量配置:
+        RM_HOST: RM 服务器地址（默认 127.0.0.1）
+        RM_PORT: RM 服务器端口（默认 8001）
     """
     
-    def __init__(self):
-        rm_model_path = '/root/autodl-tmp/ckpts/intern_vl3_14b-lora-rm-20Oct2025-1920-ckpt/v0-20251020-192110/checkpoint-30-merged'
+    def __init__(self, rm_host=None, rm_port=None):
+        import os
         
-        logger.info(f'[LocalRM] Loading reward model from: {rm_model_path}')
+        # 优先使用传入参数，其次使用环境变量，最后使用默认值
+        self.rm_host = rm_host or os.getenv('RM_HOST', '127.0.0.1')
+        self.rm_port = int(rm_port or os.getenv('RM_PORT', '8001'))
         
-        # 使用 PtEngine 加载 RM，与 demo_reward_model.py 相同的方式
-        self.engine = PtEngine(rm_model_path, max_batch_size=64)
+        logger.info(f'[LocalRM API] Connecting to RM server at {self.rm_host}:{self.rm_port}')
         
-        logger.info(f'[LocalRM] ✅ Reward model loaded successfully!')
-        logger.info(f'[LocalRM] Model type: {type(self.engine.model).__name__}')
+        # 使用 InferClient 连接 RM API 服务
+        try:
+            self.engine = InferClient(host=self.rm_host, port=self.rm_port)
+            models = self.engine.models
+            logger.info(f'[LocalRM API] ✅ Connected to RM server successfully!')
+            logger.info(f'[LocalRM API] Available models: {models}')
+        except Exception as e:
+            logger.error(f'[LocalRM API] ❌ Failed to connect to RM server: {e}')
+            raise
     
     def __call__(self, completions: List[str], messages=None, images=None, **kwargs) -> List[float]:
         """
@@ -39,7 +50,7 @@ class LocalRMReward(ORM):
             rewards: 奖励分数列表（float）
         """
         if not messages:
-            logger.warning('[LocalRM] No messages provided, returning zero rewards')
+            logger.warning('[LocalRM API] No messages provided, returning zero rewards')
             return [0.0] * len(completions)
         
         # 准备 RM 推理请求
@@ -53,14 +64,14 @@ class LocalRMReward(ORM):
             # messages 中最后一条应该已经包含了 assistant 的回答
             # 但为了安全起见，检查并确保最后一条是 assistant 的回答
             if not messages_copy or messages_copy[-1]['role'] != 'assistant':
-                logger.warning(f'[LocalRM] Sample {idx}: messages 最后一条不是 assistant，使用 completion 补充')
+                logger.warning(f'[LocalRM API] Sample {idx}: messages 最后一条不是 assistant，使用 completion 补充')
                 if messages_copy and idx < len(completions):
                     messages_copy.append({
                         'role': 'assistant',
                         'content': completions[idx]
                     })
                 else:
-                    logger.error(f'[LocalRM] Sample {idx}: messages 无效，使用默认分数 0.0')
+                    logger.error(f'[LocalRM API] Sample {idx}: messages 无效，使用默认分数 0.0')
                     continue
             
             # 创建 InferRequest（包含图片信息）
@@ -73,9 +84,9 @@ class LocalRMReward(ORM):
         # 初始化所有样本的 rewards 为 0.0
         rewards = [0.0] * len(completions)
         
-        # 批量推理
+        # 批量推理（调用 API）
         try:
-            # 使用 engine.infer 进行批量评分
+            # 使用 InferClient 批量调用 RM API
             results = self.engine.infer(rm_requests, use_tqdm=False)
             
             for req_idx, result in enumerate(results):
@@ -93,19 +104,20 @@ class LocalRMReward(ORM):
                     rewards[original_idx] = score
                     
                 except (ValueError, AttributeError, IndexError) as e:
-                    logger.warning(f'[LocalRM] Failed to parse reward for sample {original_idx}: {e}, using 0.0')
+                    logger.warning(f'[LocalRM API] Failed to parse reward for sample {original_idx}: {e}, using 0.0')
                     rewards[original_idx] = 0.0
             
             # 记录统计信息
             if rewards:
                 avg_reward = sum(rewards) / len(rewards)
-                logger.info(f'[LocalRM] Batch size: {len(rewards)}, Avg reward: {avg_reward:.4f}, '
+                logger.info(f'[LocalRM API] Batch size: {len(rewards)}, Avg reward: {avg_reward:.4f}, '
                            f'Min: {min(rewards):.4f}, Max: {max(rewards):.4f}')
             
             return rewards
             
         except Exception as e:
-            logger.error(f'[LocalRM] Error during RM inference: {e}')
+            logger.error(f'[LocalRM API] Error during RM API call: {e}')
+            logger.error(f'[LocalRM API] Please check if RM server at {self.rm_host}:{self.rm_port} is running')
             # 返回默认分数避免训练中断
             return [0.0] * len(completions)
 
@@ -113,5 +125,5 @@ class LocalRMReward(ORM):
 # 注册自定义奖励函数
 orms['local_rm_reward'] = LocalRMReward
 
-logger.info('[LocalRM] ✅ Registered custom reward function: local_rm_reward')
+logger.info('[LocalRM API] ✅ Registered custom reward function: local_rm_reward')
 
