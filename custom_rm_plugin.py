@@ -122,8 +122,107 @@ class LocalRMReward(ORM):
             return [0.0] * len(completions)
 
 
+class ThinkingFormatReward(ORM):
+    """
+    检查模型输出是否符合思考格式的奖励函数
+    
+    期望格式：
+        <start_thinking>思考内容...</end_thinking>
+        <start_response>回答内容...</end_response>
+    
+    奖励规则：
+        - 完全符合格式: 1.0
+        - 只有部分标签: 0.5
+        - 标签顺序错误: 0.3
+        - 完全不符合: 0.0
+    """
+    
+    def __init__(self):
+        logger.info('[ThinkingFormat] ✅ Initialized ThinkingFormatReward')
+    
+    def __call__(self, completions: List[str], **kwargs) -> List[float]:
+        """
+        检查每个 completion 是否符合思考格式
+        
+        Args:
+            completions: 模型生成的回答列表
+            kwargs: 其他参数（不使用）
+        
+        Returns:
+            rewards: 格式奖励分数列表（0.0-1.0）
+        """
+        rewards = []
+        
+        for completion in completions:
+            # 处理可能的 token_ids 格式
+            if isinstance(completion, list):
+                # 如果是 token IDs，跳过检查
+                logger.warning('[ThinkingFormat] Received token IDs instead of string, skipping')
+                rewards.append(0.0)
+                continue
+            elif isinstance(completion, dict):
+                completion = completion.get('content', '')
+            
+            content = str(completion)
+            
+            # 检查是否包含各个标签
+            has_thinking_start = '<start_thinking>' in content
+            has_thinking_end = '</end_thinking>' in content
+            has_response_start = '<start_response>' in content
+            has_response_end = '</end_response>' in content
+            
+            # 检查标签的位置
+            thinking_start_pos = content.find('<start_thinking>')
+            thinking_end_pos = content.find('</end_thinking>')
+            response_start_pos = content.find('<start_response>')
+            response_end_pos = content.find('</end_response>')
+            
+            # 计算奖励
+            reward = 0.0
+            
+            # 完全符合格式
+            if (has_thinking_start and has_thinking_end and 
+                has_response_start and has_response_end):
+                
+                # 检查顺序是否正确
+                if (thinking_start_pos < thinking_end_pos < 
+                    response_start_pos < response_end_pos):
+                    reward = 1.0  # 完美格式
+                else:
+                    reward = 0.3  # 有所有标签但顺序错误
+            
+            # 部分符合格式
+            elif ((has_thinking_start and has_thinking_end) or 
+                  (has_response_start and has_response_end)):
+                reward = 0.5  # 只有一对标签
+            
+            # 有部分标签
+            elif (has_thinking_start or has_thinking_end or 
+                  has_response_start or has_response_end):
+                reward = 0.2  # 有个别标签
+            
+            # 完全不符合
+            else:
+                reward = 0.0
+            
+            rewards.append(reward)
+        
+        # 记录统计信息
+        if rewards:
+            avg_reward = sum(rewards) / len(rewards)
+            perfect_count = sum(1 for r in rewards if r == 1.0)
+            logger.info(
+                f'[ThinkingFormat] Batch: {len(rewards)}, '
+                f'Avg: {avg_reward:.2f}, Perfect: {perfect_count}/{len(rewards)}'
+            )
+        
+        return rewards
+
+
 # 注册自定义奖励函数
 orms['local_rm_reward'] = LocalRMReward
+orms['thinking_format'] = ThinkingFormatReward
 
 logger.info('[LocalRM API] ✅ Registered custom reward function: local_rm_reward')
+logger.info('[ThinkingFormat] ✅ Registered custom reward function: thinking_format')
 
