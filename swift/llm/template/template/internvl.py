@@ -72,6 +72,8 @@ class InternvlTemplate(Template):
             return super().forward_context(model, inputs)
 
     def _post_encode(self, model: nn.Module, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        if 'input_ids' not in inputs:
+            return inputs
         embedding = model.get_input_embeddings()
         device = embedding.weight.device
         input_ids = inputs['input_ids']
@@ -317,6 +319,8 @@ class InternvlhfTemplate(Internvl2Template):
         return encoded
 
     def _post_encode(self, model: nn.Module, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        if 'input_ids' not in inputs:
+            return inputs
         embedding = model.get_input_embeddings()
         device = embedding.weight.device
         input_ids = inputs['input_ids']
