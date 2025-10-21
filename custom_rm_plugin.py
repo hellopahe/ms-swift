@@ -25,51 +25,61 @@ class LocalRMReward(ORM):
         logger.info(f'[LocalRM] ✅ Reward model loaded successfully!')
         logger.info(f'[LocalRM] Model type: {type(self.engine.model).__name__}')
     
-    def __call__(self, completions: List[str], **kwargs) -> List[float]:
+    def __call__(self, completions: List[str], messages=None, images=None, **kwargs) -> List[float]:
         """
         计算奖励分数
         
         Args:
-            completions: 模型生成的回答列表
-            kwargs: 包含 'inputs' 等信息
-                - inputs: List[Dict], 每个包含 'messages' 等字段
+            completions: 模型生成的回答列表（已经在 messages 中）
+            messages: List[List[Dict]], 每个样本的完整对话历史（包含 assistant 的回答）
+            images: List[List], 每个样本的图片列表（可选）
+            kwargs: 其他参数
         
         Returns:
             rewards: 奖励分数列表（float）
         """
-        inputs = kwargs.get('inputs', [])
-        
-        if not inputs:
-            logger.warning('[LocalRM] No inputs provided, returning zero rewards')
+        if not messages:
+            logger.warning('[LocalRM] No messages provided, returning zero rewards')
             return [0.0] * len(completions)
         
         # 准备 RM 推理请求
         rm_requests = []
-        for inp, completion in zip(inputs, completions):
-            # 获取原始对话历史
-            messages = inp.get('messages', []).copy()
+        valid_indices = []  # 记录有效样本的索引
+        
+        for idx, msg_list in enumerate(messages):
+            # 复制对话历史（避免修改原数据）
+            messages_copy = msg_list.copy() if isinstance(msg_list, list) else []
             
-            # 添加模型生成的回答
-            if messages and messages[-1]['role'] == 'assistant':
-                # 如果最后一条已经是 assistant，替换内容
-                messages[-1]['content'] = completion
-            else:
-                # 否则添加新的 assistant 消息
-                messages.append({
-                    'role': 'assistant',
-                    'content': completion
-                })
+            # messages 中最后一条应该已经包含了 assistant 的回答
+            # 但为了安全起见，检查并确保最后一条是 assistant 的回答
+            if not messages_copy or messages_copy[-1]['role'] != 'assistant':
+                logger.warning(f'[LocalRM] Sample {idx}: messages 最后一条不是 assistant，使用 completion 补充')
+                if messages_copy and idx < len(completions):
+                    messages_copy.append({
+                        'role': 'assistant',
+                        'content': completions[idx]
+                    })
+                else:
+                    logger.error(f'[LocalRM] Sample {idx}: messages 无效，使用默认分数 0.0')
+                    continue
             
-            # 创建 InferRequest
-            rm_requests.append(InferRequest(messages=messages))
+            # 创建 InferRequest（包含图片信息）
+            request_kwargs = {'messages': messages_copy}
+            if images and idx < len(images) and images[idx]:
+                request_kwargs['images'] = images[idx]
+            rm_requests.append(InferRequest(**request_kwargs))
+            valid_indices.append(idx)
+        
+        # 初始化所有样本的 rewards 为 0.0
+        rewards = [0.0] * len(completions)
         
         # 批量推理
         try:
             # 使用 engine.infer 进行批量评分
             results = self.engine.infer(rm_requests, use_tqdm=False)
             
-            rewards = []
-            for idx, result in enumerate(results):
+            for req_idx, result in enumerate(results):
+                original_idx = valid_indices[req_idx]  # 映射回原始索引
                 try:
                     # RM 返回的分数在 message.content 中
                     score_str = result.choices[0].message.content
@@ -80,11 +90,11 @@ class LocalRMReward(ORM):
                     else:
                         score = float(score_str)
                     
-                    rewards.append(score)
+                    rewards[original_idx] = score
                     
                 except (ValueError, AttributeError, IndexError) as e:
-                    logger.warning(f'[LocalRM] Failed to parse reward for sample {idx}: {e}, using 0.0')
-                    rewards.append(0.0)
+                    logger.warning(f'[LocalRM] Failed to parse reward for sample {original_idx}: {e}, using 0.0')
+                    rewards[original_idx] = 0.0
             
             # 记录统计信息
             if rewards:
