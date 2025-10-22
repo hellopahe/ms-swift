@@ -11,25 +11,19 @@ logger = get_logger()
 _WORK_RE = re.compile(
     r"<start_thinking>(.*?)</end_thinking>", flags=re.S | re.I
 )
-_SOL_RE = re.compile(
-    r"<start_response>(.*?)</end_response>", flags=re.S | re.I
-)
 
 
 def _strip_reasoning(text: str) -> str:
     """移除 thinking 段并抽取 <start_response> 内文本。"""
-    thinking_pos = text.find('<start_thinking>')
-    response_pos = text.find('<start_response>')
+    end_pos = text.rfind('</end_response>')
+    if end_pos == -1:
+        return text.strip()
     
-    if thinking_pos >= 0 or response_pos >= 0:
-        if thinking_pos >= 0 and (response_pos < 0 or thinking_pos < response_pos):
-            text = text[thinking_pos:]
-        elif response_pos >= 0:
-            text = text[response_pos:]
+    start_pos = text.rfind('<start_response>', 0, end_pos)
+    if start_pos == -1:
+        return text.strip()
     
-    text = _WORK_RE.sub("", text)
-    m = _SOL_RE.search(text)
-    return (m.group(1) if m else text).strip()
+    return text[start_pos + len('<start_response>'):end_pos].strip()
 
 
 def _extract_thinking(text: str) -> str:
