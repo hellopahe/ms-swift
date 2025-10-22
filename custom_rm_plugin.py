@@ -212,6 +212,11 @@ class ThinkingFormatReward(ORM):
             
             content = str(completion)
             
+            # 去掉 <|im_start|>assistant 及之前的部分
+            assistant_pos = content.rfind('<|im_start|>assistant')
+            if assistant_pos != -1:
+                content = content[assistant_pos + len('<|im_start|>assistant'):]
+            
             # 检查是否包含各个标签
             has_thinking_start = '<start_thinking>' in content
             has_thinking_end = '</end_thinking>' in content
