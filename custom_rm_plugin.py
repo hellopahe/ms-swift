@@ -18,7 +18,16 @@ _SOL_RE = re.compile(
 
 def _strip_reasoning(text: str) -> str:
     """移除 thinking 段并抽取 <start_response> 内文本。"""
-    text = _WORK_RE.sub("", text)  # 删除 reasoning
+    thinking_pos = text.find('<start_thinking>')
+    response_pos = text.find('<start_response>')
+    
+    if thinking_pos >= 0 or response_pos >= 0:
+        if thinking_pos >= 0 and (response_pos < 0 or thinking_pos < response_pos):
+            text = text[thinking_pos:]
+        elif response_pos >= 0:
+            text = text[response_pos:]
+    
+    text = _WORK_RE.sub("", text)
     m = _SOL_RE.search(text)
     return (m.group(1) if m else text).strip()
 
