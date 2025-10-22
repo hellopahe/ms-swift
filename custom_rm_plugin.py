@@ -1,10 +1,32 @@
 # custom_rm_plugin.py
+import re
 from typing import List
 from swift.llm import InferClient, InferRequest
 from swift.plugin import ORM, orms
 from swift.utils import get_logger
 
 logger = get_logger()
+
+# 正则表达式匹配思考和回答部分
+_WORK_RE = re.compile(
+    r"<start_thinking>(.*?)</end_thinking>", flags=re.S | re.I
+)
+_SOL_RE = re.compile(
+    r"<start_response>(.*?)</end_response>", flags=re.S | re.I
+)
+
+
+def _strip_reasoning(text: str) -> str:
+    """移除 thinking 段并抽取 <start_response> 内文本。"""
+    text = _WORK_RE.sub("", text)  # 删除 reasoning
+    m = _SOL_RE.search(text)
+    return (m.group(1) if m else text).strip()
+
+
+def _extract_thinking(text: str) -> str:
+    """提取 thinking 部分的文本"""
+    m = _WORK_RE.search(text)
+    return (m.group(1) if m else "").strip()
 
 
 class LocalRMReward(ORM):
@@ -40,6 +62,8 @@ class LocalRMReward(ORM):
         """
         计算奖励分数
         
+        注意：会自动去除思考过程，只评估纯答案部分
+        
         Args:
             completions: 模型生成的回答列表（已经在 messages 中）
             messages: List[List[Dict]], 每个样本的完整对话历史（包含 assistant 的回答）
@@ -59,7 +83,7 @@ class LocalRMReward(ORM):
         
         for idx, msg_list in enumerate(messages):
             # 复制对话历史（避免修改原数据）
-            messages_copy = msg_list.copy() if isinstance(msg_list, list) else []
+            messages_copy = [msg.copy() for msg in msg_list] if isinstance(msg_list, list) else []
             
             # messages 中最后一条应该已经包含了 assistant 的回答
             # 但为了安全起见，检查并确保最后一条是 assistant 的回答
@@ -73,6 +97,20 @@ class LocalRMReward(ORM):
                 else:
                     logger.error(f'[LocalRM API] Sample {idx}: messages 无效，使用默认分数 0.0')
                     continue
+            
+            # 关键修改：去除思考过程，只保留纯答案
+            original_content = messages_copy[-1]['content']
+            if isinstance(original_content, str):
+                stripped_content = _strip_reasoning(original_content)
+                messages_copy[-1] = {
+                    'role': 'assistant',
+                    'content': stripped_content
+                }
+                
+                # 记录日志（仅首次）
+                if idx == 0:
+                    logger.debug(f'[LocalRM API] Original length: {len(original_content)}, '
+                               f'Stripped length: {len(stripped_content)}')
             
             # 创建 InferRequest（包含图片信息）
             request_kwargs = {'messages': messages_copy}
