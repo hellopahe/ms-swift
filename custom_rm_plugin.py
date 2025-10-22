@@ -107,10 +107,16 @@ class LocalRMReward(ORM):
                     'content': stripped_content
                 }
                 
-                # 记录日志（仅首次）
+                # 打印第一个样本的详细内容，方便检查
                 if idx == 0:
-                    logger.debug(f'[LocalRM API] Original length: {len(original_content)}, '
+                    logger.info(f'[LocalRM API] Sample {idx} - Original length: {len(original_content)}, '
                                f'Stripped length: {len(stripped_content)}')
+                    logger.info(f'[LocalRM API] Sample {idx} - Original content:\n{original_content}')
+                    logger.info(f'[LocalRM API] Sample {idx} - Stripped content (sent to RM):\n{stripped_content}')
+                else:
+                    # 其他样本只打印摘要
+                    logger.debug(f'[LocalRM API] Sample {idx} - Original: {len(original_content)} chars, '
+                                f'Stripped: {len(stripped_content)} chars')
             
             # 创建 InferRequest（包含图片信息）
             request_kwargs = {'messages': messages_copy}
