@@ -116,6 +116,7 @@ class LocalRMReward(ORM):
                                f'Stripped length: {len(stripped_content)}')
                     logger.info(f'[LocalRM API] Sample {idx} - Original content:\n{original_content}')
                     logger.info(f'[LocalRM API] Sample {idx} - Stripped content (sent to RM):\n{stripped_content}')
+                    logger.info(f'>>>>> requested messages: {messages_copy}')
                 else:
                     # 其他样本只打印摘要
                     logger.debug(f'[LocalRM API] Sample {idx} - Original: {len(original_content)} chars, '
