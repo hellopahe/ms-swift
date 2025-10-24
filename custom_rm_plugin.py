@@ -278,6 +278,14 @@ class ThinkingFormatReward(ORM):
             else:
                 reward = 0.0
             
+            # 检查是否以 <start_thinking>嗯， 开始（支持全角和半角逗号）
+            if has_thinking_start:
+                thinking_content_start = content[thinking_start_pos + len('<start_thinking>'):]
+                if thinking_content_start.startswith('嗯，') or thinking_content_start.startswith('嗯,'):
+                    old_reward = reward
+                    reward += 0.5
+                    logger.info(f'[ThinkingFormat] ✅ Found "嗯，" at start, reward: {old_reward:.2f} → {reward:.2f}')
+            
             rewards.append(reward)
         
         # 记录统计信息
