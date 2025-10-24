@@ -38,22 +38,42 @@ class LocalRMReward(ORM):
     通过 HTTP API 调用独立部署的 Reward Model 服务
     
     环境变量配置:
-        RM_HOST: RM 服务器地址（默认 127.0.0.1）
+        RM_HOST: RM 服务器地址
+                - 支持纯主机名: 127.0.0.1 或 example.com
+                - 支持完整URL: https://example.com 或 http://example.com
+                默认: 127.0.0.1
         RM_PORT: RM 服务器端口（默认 8001）
+                 如果 RM_HOST 包含端口，URL中的端口优先
     """
     
     def __init__(self, rm_host=None, rm_port=None):
         import os
+        from urllib.parse import urlparse
         
         # 优先使用传入参数，其次使用环境变量，最后使用默认值
-        self.rm_host = rm_host or os.getenv('RM_HOST', '127.0.0.1')
-        self.rm_port = int(rm_port or os.getenv('RM_PORT', '8001'))
+        rm_host_raw = rm_host or os.getenv('RM_HOST', '127.0.0.1')
+        rm_port_raw = rm_port or os.getenv('RM_PORT', '8001')
         
-        logger.info(f'[LocalRM API] Connecting to RM server at {self.rm_host}:{self.rm_port}')
-        
-        # 使用 InferClient 连接 RM API 服务
-        try:
+        # 解析 URL：如果包含协议（http://或https://），则提取各部分
+        if rm_host_raw.startswith('http://') or rm_host_raw.startswith('https://'):
+            parsed = urlparse(rm_host_raw)
+            scheme = parsed.scheme
+            hostname = parsed.hostname
+            # URL 中的端口优先于环境变量的端口
+            port = parsed.port or int(rm_port_raw)
+            base_url = f'{scheme}://{hostname}:{port}/v1'
+            
+            logger.info(f'[LocalRM API] Connecting to RM server at {base_url}')
+            self.engine = InferClient(base_url=base_url)
+        else:
+            # 兼容旧的纯主机名方式
+            self.rm_host = rm_host_raw
+            self.rm_port = int(rm_port_raw)
+            logger.info(f'[LocalRM API] Connecting to RM server at {self.rm_host}:{self.rm_port}')
             self.engine = InferClient(host=self.rm_host, port=self.rm_port)
+        
+        # 测试连接
+        try:
             models = self.engine.models
             logger.info(f'[LocalRM API] ✅ Connected to RM server successfully!')
             logger.info(f'[LocalRM API] Available models: {models}')
@@ -165,7 +185,7 @@ class LocalRMReward(ORM):
             
         except Exception as e:
             logger.error(f'[LocalRM API] Error during RM API call: {e}')
-            logger.error(f'[LocalRM API] Please check if RM server at {self.rm_host}:{self.rm_port} is running')
+            logger.error(f'[LocalRM API] Please check if RM server is running')
             # 返回默认分数避免训练中断
             return [0.0] * len(completions)
 
