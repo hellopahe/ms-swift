@@ -286,15 +286,6 @@ class ThinkingFormatReward(ORM):
                     reward += 0.5
                     logger.info(f'[ThinkingFormat] ✅ Found "嗯，用户问的是" at start, reward: {old_reward:.2f} → {reward:.2f}')
             
-            # 检查思考过程长度，700字以内额外奖励
-            if has_thinking_start and has_thinking_end:
-                thinking_content = _extract_thinking(content)
-                thinking_length = len(thinking_content)
-                if thinking_length <= 700:
-                    old_reward = reward
-                    reward += 0.2
-                    logger.info(f'[ThinkingFormat] ✅ Thinking length {thinking_length}≤700, reward: {old_reward:.2f} → {reward:.2f}')
-            
             rewards.append(reward)
         
         # 记录统计信息
