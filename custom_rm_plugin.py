@@ -283,7 +283,7 @@ class ThinkingFormatReward(ORM):
                 thinking_content_start = content[thinking_start_pos + len('<start_thinking>'):]
                 if thinking_content_start.startswith('嗯，用户问的是') or thinking_content_start.startswith('嗯,用户问的是'):
                     old_reward = reward
-                    reward += 0.5
+                    reward += 0.2
                     logger.info(f'[ThinkingFormat] ✅ Found "嗯，用户问的是" at start, reward: {old_reward:.2f} → {reward:.2f}')
             
             rewards.append(reward)
