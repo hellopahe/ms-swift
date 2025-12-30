@@ -1052,47 +1052,7 @@ class BaseMegatronTrainer(ABC):
         self._patch_fp4_context()
 
     def _patch_fp4_context(self):
-        try:
-            from megatron.core import fp4_utils
-            if not hasattr(fp4_utils, 'HAVE_TE') or not fp4_utils.HAVE_TE:
-                return
-            import transformer_engine
-            from megatron.core import parallel_state
-            from megatron.core.transformer.transformer_config import TransformerConfig
-            from contextlib import nullcontext
-
-            origin_get_fp4_context = fp4_utils.get_fp4_context
-
-            def patched_get_fp4_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
-                need_fp4_context = config.fp4
-                if not need_fp4_context:
-                    return nullcontext()
-
-                num_bf16_layers_at_start = (
-                    config.num_layers_at_start_in_bf16 if config.first_last_layers_bf16 else 0
-                )
-                num_bf16_layers_at_end = (
-                    config.num_layers_at_end_in_bf16 if config.first_last_layers_bf16 else 0
-                )
-                is_first_layer = layer_no < num_bf16_layers_at_start
-                is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
-                if layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
-                    return nullcontext()
-
-                fp4_recipe = fp4_utils.get_fp4_recipe(config)
-                fp4_group = None
-                if parallel_state.model_parallel_is_initialized():
-                    fp4_group = parallel_state.get_amax_reduction_group(
-                        with_context_parallel=True, tp_only_amax_red=config.tp_only_amax_red
-                    )
-                return transformer_engine.pytorch.fp8_autocast(
-                    enabled=True, fp8_recipe=fp4_recipe, fp8_group=fp4_group
-                )
-
-            fp4_utils.get_fp4_context = patched_get_fp4_context
-            logger.info('Patched get_fp4_context to use fp8_autocast for both init and runtime.')
-        except ImportError:
-            pass
+        pass
 
     def _init_multimodal_full(self):
         args = get_args()
