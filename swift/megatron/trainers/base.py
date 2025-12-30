@@ -1048,11 +1048,6 @@ class BaseMegatronTrainer(ABC):
         # patch save_checkpoint
         self._origin_save_checkpoint = training.save_checkpoint
         training.save_checkpoint = self.save_checkpoint
-        # patch fp4 context for init
-        self._patch_fp4_context()
-
-    def _patch_fp4_context(self):
-        pass
 
     def _init_multimodal_full(self):
         args = get_args()
