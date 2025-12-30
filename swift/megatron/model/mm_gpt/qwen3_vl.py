@@ -5,6 +5,7 @@ from typing import List, Optional, Union
 import torch
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.enums import Fp8Recipe
+from megatron.core.fp4_utils import get_fp4_context
 from megatron.core.fp8_utils import get_fp8_context
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt import gpt_model
@@ -180,12 +181,10 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
         rotary_pos_emb: torch.Tensor,
         attention_bias: torch.Tensor,
         packed_seq_params: PackedSeqParams,
-        use_inner_fp8_context: bool,
-        # args for deepstack
+        use_inner_quantization_context: bool,
         visual_pos_masks: Optional[torch.Tensor] = None,
         deepstack_visual_embeds: Optional[List[torch.Tensor]] = None,
     ):
-        """Forward method with activation checkpointing."""
 
         def custom(start: int, end: int):
 
@@ -193,10 +192,16 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                                deepstack_visual_embeds):
                 for index in range(start, end):
                     layer = self._get_layer(index)
-                    inner_fp8_context = (
-                        get_fp8_context(self.config, layer.layer_number
-                                        - 1) if use_inner_fp8_context else nullcontext())
-                    with inner_fp8_context:
+                    if use_inner_quantization_context:
+                        if self.config.fp8:
+                            inner_quantization_context = get_fp8_context(self.config, layer.layer_number - 1)
+                        elif self.config.fp4:
+                            inner_quantization_context = get_fp4_context(self.config, layer.layer_number - 1)
+                        else:
+                            inner_quantization_context = nullcontext()
+                    else:
+                        inner_quantization_context = nullcontext()
+                    with inner_quantization_context:
                         hidden_states, context = layer(
                             hidden_states=hidden_states,
                             attention_mask=attention_mask,
@@ -207,7 +212,6 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                             inference_context=None,
                             packed_seq_params=packed_seq_params,
                         )
-                    # add visual features to the hidden states of first several layers
                     layer_number = layer.layer_number - 1
                     if deepstack_visual_embeds is not None and layer_number in range(len(deepstack_visual_embeds)):
                         hidden_states = self._deepstack_process(
@@ -220,8 +224,7 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
             return custom_forward
 
         def checkpoint_handler(forward_func):
-            """Determines whether to use the `te_checkpoint` or `tensor_parallel.checkpoint`"""
-            if self.config.fp8:
+            if self.config.fp8 or self.config.fp4:
                 return te_checkpoint(
                     forward_func,
                     self.config.distribute_saved_activations,
@@ -260,15 +263,9 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                 layer_idx += self.config.recompute_num_layers
 
         elif self.config.recompute_method == 'block':
-            # Checkpoint the input activation of only a set number of individual
-            # Transformer layers and skip the rest.
-            # A method fully use the device memory removing redundant re-computation.
             recompute_skip_num_layers = 0
             for layer_idx in range(self.num_layers_per_pipeline_rank):
-                # Skip recomputation when input grad computation is not needed.
-                # Need to have at least one input tensor with gradient computation
-                # for re-enterant autograd engine.
-                if self.config.fp8 and not hidden_states.requires_grad:
+                if (self.config.fp8 or self.config.fp4) and not hidden_states.requires_grad:
                     recompute_skip_num_layers += 1
                 if (layer_idx >= recompute_skip_num_layers
                         and layer_idx < self.config.recompute_num_layers + recompute_skip_num_layers):
@@ -361,17 +358,20 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
         else:
             rng_context = nullcontext()
 
-        # If fp8_recipe is delayed, wrap the entire pass with get_fp8_context(),
-        # otherwise do nothing extra at the outer level
-        # if we are using other fp8 recipes, then the context manager enter&exit are free
-        # we can wrap fp8_context within the for loop over layers, so that we can fine-grained
-        # control which layer will be fp8 or bf16
-        use_outer_fp8_context = self.config.fp8 and self.config.fp8_recipe == Fp8Recipe.delayed
-        use_inner_fp8_context = self.config.fp8 and self.config.fp8_recipe != Fp8Recipe.delayed
-        outer_fp8_context = get_fp8_context(self.config) if use_outer_fp8_context else nullcontext()
+        if self.config.fp8:
+            use_outer_quantization_context = self.config.fp8_recipe == Fp8Recipe.delayed
+            use_inner_quantization_context = self.config.fp8_recipe != Fp8Recipe.delayed
+            outer_quantization_context = get_fp8_context(self.config) if use_outer_quantization_context else nullcontext()
+        elif self.config.fp4:
+            use_outer_quantization_context = False
+            use_inner_quantization_context = True
+            outer_quantization_context = nullcontext()
+        else:
+            use_outer_quantization_context = False
+            use_inner_quantization_context = False
+            outer_quantization_context = nullcontext()
 
-        with rng_context, outer_fp8_context:
-            # Forward pass.
+        with rng_context, outer_quantization_context:
             if self.config.recompute_granularity == 'full' and self.training:
                 hidden_states = self._checkpointed_forward(
                     hidden_states=hidden_states,
@@ -381,16 +381,22 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                     rotary_pos_emb=rotary_pos_emb,
                     attention_bias=attention_bias,
                     packed_seq_params=packed_seq_params,
-                    use_inner_fp8_context=use_inner_fp8_context,
+                    use_inner_quantization_context=use_inner_quantization_context,
                     visual_pos_masks=visual_pos_masks,
                     deepstack_visual_embeds=deepstack_visual_embeds,
                 )
             else:
                 for l_no, layer in enumerate(self.layers):
-                    inner_fp8_context = (
-                        get_fp8_context(self.config, layer.layer_number
-                                        - 1) if use_inner_fp8_context else nullcontext())
-                    with self.offload_context, inner_fp8_context:
+                    if use_inner_quantization_context:
+                        if self.config.fp8:
+                            inner_quantization_context = get_fp8_context(self.config, layer.layer_number - 1)
+                        elif self.config.fp4:
+                            inner_quantization_context = get_fp4_context(self.config, layer.layer_number - 1)
+                        else:
+                            inner_quantization_context = nullcontext()
+                    else:
+                        inner_quantization_context = nullcontext()
+                    with self.offload_context, inner_quantization_context:
                         hidden_states, context = layer(
                             hidden_states=hidden_states,
                             attention_mask=attention_mask,

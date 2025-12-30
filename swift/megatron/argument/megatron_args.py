@@ -559,6 +559,11 @@ class MegatronArguments(ExtraMegatronArguments):
     fp8_amax_compute_algo: Literal['most_recent', 'max'] = 'max'
     fp8_param_gather: bool = False
 
+    # fp4
+    fp4_format: Literal['e2m1'] = None
+    fp4_recipe: Literal['nvfp4'] = 'nvfp4'
+    fp4_param_gather: bool = False
+
     # mixed precision
     fp16: Optional[bool] = None
     bf16: Optional[bool] = None
@@ -739,9 +744,16 @@ class MegatronArguments(ExtraMegatronArguments):
             self._load_adapter_config()
         self._init_moe()
         self._init_mixed_precision()
+        self._init_fp4()
 
         self.megatron_extra_kwargs = json_parse_to_dict(self.megatron_extra_kwargs)
         self._init_no_rope_fusion()
+
+    def _init_fp4(self):
+        if self.fp4_format is not None and self.fp8_format is not None:
+            raise ValueError('fp4_format and fp8_format cannot be used simultaneously. Please choose one.')
+        if self.fp4_param_gather and self.fp4_format is None:
+            raise ValueError('fp4_param_gather must be used together with fp4_format.')
 
     def _init_no_rope_fusion(self):
         if self.no_rope_fusion is not None:
@@ -763,13 +775,17 @@ class MegatronArguments(ExtraMegatronArguments):
         extra_args['hf_model_type'] = self.model_type
         megatron_extra_kwargs = args_dict.pop('megatron_extra_kwargs')
         args_dict.update(megatron_extra_kwargs)
+        arg_name_mapping = {
+            'fp4_param_gather': 'fp4-param-gather',
+        }
         for k, value in args_dict.items():
             if k not in MegatronArguments.__annotations__ and k not in megatron_extra_kwargs:
                 extra_args[k] = value
                 continue
             if value is None or value is False:
                 continue
-            new_args.append(f"--{k.replace('_', '-')}")
+            arg_name = arg_name_mapping.get(k, k.replace('_', '-'))
+            new_args.append(f'--{arg_name}')
             if isinstance(value, list):
                 new_args += [str(v) for v in value]
             elif value is not True:
