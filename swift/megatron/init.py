@@ -816,57 +816,7 @@ def _patch_unified_memory():
 
 
 def _patch_get_fp4_context():
-    try:
-        from megatron.core import fp4_utils
-        from megatron.core.utils import is_te_min_version
-        if not is_te_min_version('2.7.0.dev0'):
-            return
-    except ImportError:
-        return
-
-    import transformer_engine
-    from megatron.core import parallel_state
-    from contextlib import nullcontext
-
-    _origin_get_fp4_recipe = fp4_utils.get_fp4_recipe
-
-    def patched_get_fp4_context(config, layer_no=-1, is_init=False):
-        num_bf16_layers_at_start = (
-            config.num_layers_at_start_in_bf16 if config.first_last_layers_bf16 else 0
-        )
-        num_bf16_layers_at_end = (
-            config.num_layers_at_end_in_bf16 if config.first_last_layers_bf16 else 0
-        )
-        is_first_layer = layer_no < num_bf16_layers_at_start
-        is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
-        need_fp4_context = config.fp4
-        if not need_fp4_context:
-            return nullcontext()
-        if layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
-            return nullcontext()
-        fp4_recipe = _origin_get_fp4_recipe(config)
-        fp4_group = None
-        if parallel_state.model_parallel_is_initialized():
-            fp4_group = parallel_state.get_amax_reduction_group(
-                with_context_parallel=True, tp_only_amax_red=config.tp_only_amax_red
-            )
-        if not is_init:
-            return transformer_engine.pytorch.fp8_autocast(
-                enabled=True, fp8_recipe=fp4_recipe, fp8_group=fp4_group
-            )
-        else:
-            context_args = {'enabled': True}
-            if 'recipe' in inspect.signature(transformer_engine.pytorch.fp8_model_init).parameters:
-                context_args['recipe'] = fp4_recipe
-            return transformer_engine.pytorch.fp8_model_init(**context_args)
-
-    fp4_utils.get_fp4_context = patched_get_fp4_context
-    try:
-        from megatron.core.transformer import transformer_block
-        transformer_block.get_fp4_context = patched_get_fp4_context
-    except ImportError:
-        pass
-    logger.info('Patch get_fp4_context successfully applied.')
+    pass
 
 
 def _patch_megatron():
