@@ -861,6 +861,11 @@ def _patch_get_fp4_context():
             return transformer_engine.pytorch.fp8_model_init(**context_args)
 
     fp4_utils.get_fp4_context = patched_get_fp4_context
+    try:
+        from megatron.core.transformer import transformer_block
+        transformer_block.get_fp4_context = patched_get_fp4_context
+    except ImportError:
+        pass
     logger.info('Patch get_fp4_context successfully applied.')
 
 
