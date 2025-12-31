@@ -324,7 +324,9 @@ def get_padding_to(args):
     fp4_format = getattr(args, 'fp4_format', None) or getattr(args, 'fp4', None)
     if args.fp8_recipe == 'blockwise':
         padding_to = (padding_to or 1) * 128
-    elif fp8_format is not None or fp4_format is not None:
+    elif fp4_format is not None:
+        padding_to = max((padding_to or 1) * 32, 32)
+    elif fp8_format is not None:
         padding_to = max((padding_to or 1) * 8, 16)
     if args.attention_backend == 'fused':
         padding_to = max(padding_to, ((origin_padding_to) or 1) * 64)
