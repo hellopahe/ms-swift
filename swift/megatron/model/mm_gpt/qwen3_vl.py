@@ -358,6 +358,13 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
         else:
             rng_context = nullcontext()
 
+        if not hasattr(self, '_fp4_debug_logged'):
+            from swift.utils import get_logger
+            _logger = get_logger()
+            _logger.info(f'[FP4 DEBUG] Qwen3VLTransformerBlock.forward: config.fp8={self.config.fp8}, '
+                         f'config.fp4={self.config.fp4}, config.fp4_param={getattr(self.config, "fp4_param", None)}')
+            self._fp4_debug_logged = True
+
         if self.config.fp8:
             use_outer_quantization_context = self.config.fp8_recipe == Fp8Recipe.delayed
             use_inner_quantization_context = self.config.fp8_recipe != Fp8Recipe.delayed
