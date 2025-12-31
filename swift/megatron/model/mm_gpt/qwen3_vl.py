@@ -187,9 +187,20 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
     ):
 
         def custom(start: int, end: int, skip_inner_fp4_context: bool = False):
+            from swift.utils import get_logger
+            _custom_logger = get_logger()
 
             def custom_forward(hidden_states, attention_mask, context, context_mask, rotary_pos_emb, visual_pos_masks,
                                deepstack_visual_embeds):
+                from transformer_engine.pytorch.fp8 import FP8GlobalStateManager
+                from transformer_engine.pytorch.distributed import is_fp8_activation_recompute_enabled, in_fp8_activation_recompute_phase
+                if start == 0:
+                    _custom_logger.info(f'[FP4 DEBUG] custom_forward: start={start}, end={end}, '
+                                        f'skip_inner_fp4_context={skip_inner_fp4_context}, '
+                                        f'use_inner_quantization_context={use_inner_quantization_context}, '
+                                        f'fp8_enabled={FP8GlobalStateManager.is_fp8_enabled()}, '
+                                        f'activation_recompute_enabled={is_fp8_activation_recompute_enabled()}, '
+                                        f'recompute_phase={in_fp8_activation_recompute_phase()}')
                 for index in range(start, end):
                     layer = self._get_layer(index)
                     if use_inner_quantization_context:
@@ -224,12 +235,19 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
             return custom_forward
 
         def checkpoint_handler(forward_func, use_fp4_context_fn: bool = False):
+            from swift.utils import get_logger
+            _ckpt_logger = get_logger()
+            _ckpt_logger.info(f'[FP4 DEBUG] checkpoint_handler: fp8={self.config.fp8}, fp4={self.config.fp4}, '
+                              f'use_fp4_context_fn={use_fp4_context_fn}')
             if self.config.fp8 or self.config.fp4:
                 if self.config.fp4 and use_fp4_context_fn:
                     fp4_recipe = get_fp4_recipe(self.config)
+                    _ckpt_logger.info(f'[FP4 DEBUG] Using fp4_context_fn with recipe={fp4_recipe}')
 
                     def fp4_context_fn():
                         import transformer_engine.pytorch as te
+                        from transformer_engine.pytorch.fp8 import FP8GlobalStateManager
+                        _ckpt_logger.info(f'[FP4 DEBUG] fp4_context_fn called, creating autocast contexts')
                         forward_ctx = te.fp8_autocast(enabled=True, fp8_recipe=fp4_recipe)
                         recompute_ctx = te.fp8_autocast(enabled=True, fp8_recipe=fp4_recipe)
                         return forward_ctx, recompute_ctx
