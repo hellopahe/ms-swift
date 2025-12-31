@@ -186,7 +186,7 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
         deepstack_visual_embeds: Optional[List[torch.Tensor]] = None,
     ):
 
-        def custom(start: int, end: int):
+        def custom(start: int, end: int, skip_inner_fp4_context: bool = False):
 
             def custom_forward(hidden_states, attention_mask, context, context_mask, rotary_pos_emb, visual_pos_masks,
                                deepstack_visual_embeds):
@@ -195,7 +195,7 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                     if use_inner_quantization_context:
                         if self.config.fp8:
                             inner_quantization_context = get_fp8_context(self.config, layer.layer_number - 1)
-                        elif self.config.fp4:
+                        elif self.config.fp4 and not skip_inner_fp4_context:
                             inner_quantization_context = get_fp4_context(self.config, layer.layer_number - 1)
                         else:
                             inner_quantization_context = nullcontext()
@@ -223,9 +223,9 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
 
             return custom_forward
 
-        def checkpoint_handler(forward_func):
+        def checkpoint_handler(forward_func, use_fp4_context_fn: bool = False):
             if self.config.fp8 or self.config.fp4:
-                if self.config.fp4:
+                if self.config.fp4 and use_fp4_context_fn:
                     fp4_recipe = get_fp4_recipe(self.config)
 
                     def fp4_context_fn():
@@ -275,15 +275,15 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                     deepstack_visual_embeds,
                 )
 
+        use_fp4_context_fn = bool(self.config.fp4)
+
         if self.config.recompute_method == 'uniform':
-            # Uniformly divide the total number of Transformer layers and checkpoint
-            # the input activation of each divided chunk.
-            # A method to further reduce memory usage reducing checkpoints.
             layer_idx = 0
             while layer_idx < self.num_layers_per_pipeline_rank:
                 hidden_states, context = checkpoint_handler(
-                    custom(layer_idx, layer_idx + self.config.recompute_num_layers))
-
+                    custom(layer_idx, layer_idx + self.config.recompute_num_layers,
+                           skip_inner_fp4_context=use_fp4_context_fn),
+                    use_fp4_context_fn=use_fp4_context_fn)
                 layer_idx += self.config.recompute_num_layers
 
         elif self.config.recompute_method == 'block':
@@ -293,7 +293,9 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                     recompute_skip_num_layers += 1
                 if (layer_idx >= recompute_skip_num_layers
                         and layer_idx < self.config.recompute_num_layers + recompute_skip_num_layers):
-                    hidden_states, context = checkpoint_handler(custom(layer_idx, layer_idx + 1))
+                    hidden_states, context = checkpoint_handler(
+                        custom(layer_idx, layer_idx + 1, skip_inner_fp4_context=use_fp4_context_fn),
+                        use_fp4_context_fn=use_fp4_context_fn)
                 else:
                     hidden_states, context = custom(layer_idx, layer_idx + 1)(hidden_states, attention_mask, context,
                                                                               context_mask, rotary_pos_emb)
