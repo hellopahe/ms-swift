@@ -5,7 +5,7 @@ from typing import List, Optional, Union
 import torch
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.enums import Fp8Recipe
-from megatron.core.fp4_utils import get_fp4_context
+from megatron.core.fp4_utils import get_fp4_context, get_fp4_recipe
 from megatron.core.fp8_utils import get_fp8_context
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt import gpt_model
@@ -201,11 +201,6 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                             inner_quantization_context = nullcontext()
                     else:
                         inner_quantization_context = nullcontext()
-                    from swift.utils import get_logger
-                    _ckpt_logger = get_logger()
-                    if index == start:
-                        _ckpt_logger.info(f'[FP4 DEBUG] _checkpointed_forward: use_inner={use_inner_quantization_context}, '
-                                          f'context_type={type(inner_quantization_context).__name__}')
                     with inner_quantization_context:
                         hidden_states, context = layer(
                             hidden_states=hidden_states,
@@ -230,19 +225,42 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
 
         def checkpoint_handler(forward_func):
             if self.config.fp8 or self.config.fp4:
-                return te_checkpoint(
-                    forward_func,
-                    self.config.distribute_saved_activations,
-                    tensor_parallel.random.get_cuda_rng_tracker,
-                    parallel_state.get_tensor_model_parallel_group(),
-                    hidden_states,
-                    attention_mask,
-                    context,
-                    context_mask,
-                    rotary_pos_emb,
-                    visual_pos_masks,
-                    deepstack_visual_embeds,
-                )
+                if self.config.fp4:
+                    fp4_recipe = get_fp4_recipe(self.config)
+
+                    def fp4_context_fn():
+                        import transformer_engine.pytorch as te
+                        ctx = te.fp8_autocast(enabled=True, fp8_recipe=fp4_recipe)
+                        return ctx, ctx
+
+                    return te_checkpoint(
+                        forward_func,
+                        self.config.distribute_saved_activations,
+                        tensor_parallel.random.get_cuda_rng_tracker,
+                        parallel_state.get_tensor_model_parallel_group(),
+                        hidden_states,
+                        attention_mask,
+                        context,
+                        context_mask,
+                        rotary_pos_emb,
+                        visual_pos_masks,
+                        deepstack_visual_embeds,
+                        context_fn=fp4_context_fn,
+                    )
+                else:
+                    return te_checkpoint(
+                        forward_func,
+                        self.config.distribute_saved_activations,
+                        tensor_parallel.random.get_cuda_rng_tracker,
+                        parallel_state.get_tensor_model_parallel_group(),
+                        hidden_states,
+                        attention_mask,
+                        context,
+                        context_mask,
+                        rotary_pos_emb,
+                        visual_pos_masks,
+                        deepstack_visual_embeds,
+                    )
             else:
                 return tensor_parallel.checkpoint(
                     forward_func,
@@ -363,13 +381,6 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
         else:
             rng_context = nullcontext()
 
-        if not hasattr(self, '_fp4_debug_logged'):
-            from swift.utils import get_logger
-            _logger = get_logger()
-            _logger.info(f'[FP4 DEBUG] Qwen3VLTransformerBlock.forward: config.fp8={self.config.fp8}, '
-                         f'config.fp4={self.config.fp4}, config.fp4_param={getattr(self.config, "fp4_param", None)}')
-            self._fp4_debug_logged = True
-
         if self.config.fp8:
             use_outer_quantization_context = self.config.fp8_recipe == Fp8Recipe.delayed
             use_inner_quantization_context = self.config.fp8_recipe != Fp8Recipe.delayed
@@ -404,12 +415,6 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                             inner_quantization_context = get_fp8_context(self.config, layer.layer_number - 1)
                         elif self.config.fp4:
                             inner_quantization_context = get_fp4_context(self.config, layer.layer_number - 1)
-                            if not hasattr(self, '_fp4_ctx_debug_logged'):
-                                from swift.utils import get_logger
-                                _logger = get_logger()
-                                _logger.info(f'[FP4 DEBUG] Using FP4 context for layer {layer.layer_number}, '
-                                             f'context_type={type(inner_quantization_context).__name__}')
-                                self._fp4_ctx_debug_logged = True
                         else:
                             inner_quantization_context = nullcontext()
                     else:

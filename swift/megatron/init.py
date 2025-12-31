@@ -815,30 +815,6 @@ def _patch_unified_memory():
         cpp_extension.load_inline = load_inline
 
 
-def _patch_get_fp4_context():
-    try:
-        from megatron.core import fp4_utils
-        from megatron.core.utils import is_te_min_version
-        if not is_te_min_version('2.7.0.dev0'):
-            return
-    except ImportError:
-        return
-
-    _origin_get_fp4_context = fp4_utils.get_fp4_context
-
-    def patched_get_fp4_context(config, layer_no=-1, is_init=False):
-        result = _origin_get_fp4_context(config, layer_no, is_init)
-        logger.info(f'[FP4 DEBUG] get_fp4_context called: layer_no={layer_no}, is_init={is_init}, '
-                    f'result_type={type(result).__name__}')
-        return result
-
-    fp4_utils.get_fp4_context = patched_get_fp4_context
-    try:
-        from megatron.core.transformer import transformer_block
-        transformer_block.get_fp4_context = patched_get_fp4_context
-    except ImportError:
-        pass
-    logger.info('Patch get_fp4_context (debug only) successfully applied.')
 
 
 def _patch_megatron():
@@ -858,10 +834,6 @@ def _patch_megatron():
     _patch__write_item()
     _patch_megatron_tokenizer()
     _patch_mtp()
-    try:
-        _patch_get_fp4_context()
-    except Exception:
-        pass
     logging.root.setLevel(logging_level)  # revert logger level
     from swift.megatron import tuners  # patch lora
     try:
