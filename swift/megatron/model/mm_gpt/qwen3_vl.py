@@ -230,8 +230,9 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
 
                     def fp4_context_fn():
                         import transformer_engine.pytorch as te
-                        ctx = te.fp8_autocast(enabled=True, fp8_recipe=fp4_recipe)
-                        return ctx, ctx
+                        forward_ctx = te.fp8_autocast(enabled=True, fp8_recipe=fp4_recipe)
+                        recompute_ctx = te.fp8_autocast(enabled=True, fp8_recipe=fp4_recipe)
+                        return forward_ctx, recompute_ctx
 
                     return te_checkpoint(
                         forward_func,
