@@ -201,6 +201,11 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                             inner_quantization_context = nullcontext()
                     else:
                         inner_quantization_context = nullcontext()
+                    from swift.utils import get_logger
+                    _ckpt_logger = get_logger()
+                    if index == start:
+                        _ckpt_logger.info(f'[FP4 DEBUG] _checkpointed_forward: use_inner={use_inner_quantization_context}, '
+                                          f'context_type={type(inner_quantization_context).__name__}')
                     with inner_quantization_context:
                         hidden_states, context = layer(
                             hidden_states=hidden_states,
@@ -399,6 +404,12 @@ class Qwen3VLTransformerBlock(gpt_model.TransformerBlock):
                             inner_quantization_context = get_fp8_context(self.config, layer.layer_number - 1)
                         elif self.config.fp4:
                             inner_quantization_context = get_fp4_context(self.config, layer.layer_number - 1)
+                            if not hasattr(self, '_fp4_ctx_debug_logged'):
+                                from swift.utils import get_logger
+                                _logger = get_logger()
+                                _logger.info(f'[FP4 DEBUG] Using FP4 context for layer {layer.layer_number}, '
+                                             f'context_type={type(inner_quantization_context).__name__}')
+                                self._fp4_ctx_debug_logged = True
                         else:
                             inner_quantization_context = nullcontext()
                     else:
